@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements (same as webhook receiver)
+COPY requirements.txt .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the report generator script
+COPY report_generator.py .
+
+# Run the report generator (job mode)
+CMD ["python", "report_generator.py"]

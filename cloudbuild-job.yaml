@@ -1,0 +1,11 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.job'
+      - '-t'
+      - 'us-east1-docker.pkg.dev/cat-database-478219/uber-eats-webhook/uber-eats-report-generator:latest'
+      - '.'
+images:
+  - 'us-east1-docker.pkg.dev/cat-database-478219/uber-eats-webhook/uber-eats-report-generator:latest'
