@@ -502,7 +502,9 @@ def exchange_authorization_code_for_token(code: str) -> Dict[str, Any]:
         raise ValueError(f"Missing required OAuth environment variables: {', '.join(missing)}")
     
     # Prepare token exchange request using NEW Orders app credentials
-    token_url = "https://auth.uber.com/oauth/v2/token"
+    # Testing app => sandbox-login.uber.com + test-api.uber.com
+    # Production app => auth.uber.com + api.uber.com
+    token_url = "https://sandbox-login.uber.com/oauth/v2/token"
     payload = {
         "client_id": UBER_ORDERS_CLIENT_ID,  # NEW Orders app
         "client_secret": UBER_ORDERS_CLIENT_SECRET,  # NEW Orders app
@@ -570,7 +572,9 @@ async def uber_authorize():
         )
     
     # Build Uber authorization URL using NEW Orders app client ID
-    auth_url = "https://auth.uber.com/oauth/v2/authorize"
+    # Testing app => sandbox-login.uber.com + test-api.uber.com
+    # Production app => auth.uber.com + api.uber.com
+    auth_url = "https://sandbox-login.uber.com/oauth/v2/authorize"
     params = {
         "client_id": UBER_ORDERS_CLIENT_ID,  # NEW Orders app
         "response_type": "code",
