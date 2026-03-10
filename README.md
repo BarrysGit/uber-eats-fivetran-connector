@@ -14,6 +14,22 @@ Comprehensive documentation covering:
 - Performance characteristics and cost analysis
 - Querying examples and troubleshooting
 
+**[→ OAuth Setup Guide](./OAUTH_SETUP.md)**
+
+Complete guide for Uber OAuth integration:
+- OAuth 2.0 authorization code flow
+- New endpoints: `/uber/authorize` and `/uber/callback`
+- Environment variable configuration
+- Uber Developer Dashboard setup
+- Testing and troubleshooting
+
+**[→ Code Changes Summary](./OAUTH_CHANGES.md)**
+
+Technical summary of OAuth implementation:
+- Exact code changes and additions
+- Deployment instructions
+- Backward compatibility details
+
 ## Quick Start
 
 ### Local Development
@@ -50,11 +66,20 @@ curl http://localhost:8080/health
 
 ## Key Features
 
+### Webhook Processing
 - ✅ **Real-time Webhook Processing**: Receives webhooks from Uber Eats automatically
 - ✅ **HMAC Signature Verification**: Secure authentication using constant-time comparison
 - ✅ **Automatic CSV Download**: Downloads and parses report CSVs from Uber's S3
 - ✅ **Direct Snowflake Integration**: Stores data directly in Snowflake (no Fivetran needed)
 - ✅ **Fivetran-Compatible Schema**: Drop-in replacement for existing Fivetran setups
+
+### OAuth Integration (New!)
+- ✅ **OAuth 2.0 Support**: Authorization code flow for integration activation
+- ✅ **POS Provisioning Scope**: Support for `eats.pos_provisioning` scope
+- ✅ **Secure Token Exchange**: Exchanges auth codes for access tokens
+- ✅ **No Token Logging**: Access tokens never logged or exposed
+
+### Infrastructure
 - ✅ **Cloud Run Deployment**: Serverless, auto-scaling, cost-effective
 - ✅ **Comprehensive Logging**: Full visibility into webhook processing
 - ✅ **Health Checks**: Built-in monitoring and health endpoints
@@ -79,6 +104,8 @@ See [DEPLOY.md](./DEPLOY.md) for detailed deployment instructions for:
 - Docker
 - Local testing
 
+**For OAuth setup:** See [OAUTH_SETUP.md](./OAUTH_SETUP.md) for configuring OAuth endpoints and Uber Developer Dashboard.
+
 ## Configuration
 
 ### Required Environment Variables
@@ -86,8 +113,12 @@ See [DEPLOY.md](./DEPLOY.md) for detailed deployment instructions for:
 **For Direct Snowflake Integration** (`main_snowflake.py`):
 
 ```bash
-# Uber Configuration
+# Uber Configuration (Webhooks)
 UBER_CLIENT_SECRET=your-uber-client-secret
+
+# Uber OAuth Configuration (Optional - only for OAuth flow)
+UBER_CLIENT_ID=your-uber-client-id
+UBER_REDIRECT_URI=https://your-service.run.app/uber/callback
 
 # Snowflake Configuration
 SNOWFLAKE_USER=GITHUB_ACTIONS
@@ -100,6 +131,8 @@ SNOWFLAKE_SCHEMA=UBER_EATS
 # Optional
 PORT=8080  # Default: 8080
 ```
+
+**Note:** OAuth variables (`UBER_CLIENT_ID`, `UBER_REDIRECT_URI`) are optional. The service works without them for webhook-only usage.
 
 **For Fivetran Integration** (`main.py`):
 

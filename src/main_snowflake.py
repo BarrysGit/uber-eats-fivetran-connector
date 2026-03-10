@@ -15,8 +15,8 @@ import csv
 import io
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request, Header, HTTPException, status
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, Request, Header, HTTPException, status, Query
+from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 import snowflake.connector
 
 # Configure logging
@@ -44,6 +44,10 @@ PORT = int(os.getenv("PORT", "8080"))
 UBER_CLIENT_SECRET = os.getenv("UBER_CLIENT_SECRET")
 SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
 SNOWFLAKE_PRIVATE_KEY = os.getenv("SNOWFLAKE_PRIVATE_KEY")  # Same secret as solidcore-scraper
+
+# OAuth Configuration (optional - only needed for OAuth flow)
+UBER_CLIENT_ID = os.getenv("UBER_CLIENT_ID", "").strip()
+UBER_REDIRECT_URI = os.getenv("UBER_REDIRECT_URI", "").strip()
 
 # Validate required sensitive environment variables
 required_vars = {
@@ -438,6 +442,184 @@ def store_report_data(conn, workflow_id: str, csv_rows: List[Dict[str, Any]]) ->
     except Exception as e:
         logger.error(f"Error storing report data: {str(e)}", exc_info=True)
         return False
+
+
+# ============================================================================
+# OAuth 2.0 Authorization Code Flow for Uber Integration Activation
+# ============================================================================
+
+def exchange_authorization_code_for_token(code: str) -> Dict[str, Any]:
+    """
+    Exchange Uber authorization code for access token.
+    
+    Args:
+        code: Authorization code from Uber callback
+        
+    Returns:
+        Token response from Uber (access_token, scope, expires_in, etc.)
+        
+    Raises:
+        ValueError: If required environment variables are missing
+        HTTPException: If token exchange fails
+    """
+    # Validate required environment variables
+    required_oauth_vars = {
+        "UBER_CLIENT_ID": UBER_CLIENT_ID,
+        "UBER_CLIENT_SECRET": UBER_CLIENT_SECRET,
+        "UBER_REDIRECT_URI": UBER_REDIRECT_URI,
+    }
+    
+    missing = [k for k, v in required_oauth_vars.items() if not v]
+    if missing:
+        raise ValueError(f"Missing required OAuth environment variables: {', '.join(missing)}")
+    
+    # Prepare token exchange request
+    token_url = "https://auth.uber.com/oauth/v2/token"
+    payload = {
+        "client_id": UBER_CLIENT_ID,
+        "client_secret": UBER_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "redirect_uri": UBER_REDIRECT_URI,
+        "code": code,
+    }
+    
+    try:
+        logger.info("Exchanging authorization code for access token")
+        response = requests.post(token_url, data=payload, timeout=30)
+        
+        # Parse response
+        if response.status_code == 200:
+            token_data = response.json()
+            logger.info(f"✅ Token exchange successful - scope: {token_data.get('scope', 'N/A')}, expires_in: {token_data.get('expires_in', 'N/A')}s")
+            return token_data
+        else:
+            # Token exchange failed
+            error_body = response.text
+            logger.error(f"Token exchange failed - status: {response.status_code}, body: {error_body}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": "token_exchange_failed",
+                    "uber_status_code": response.status_code,
+                    "uber_response": error_body
+                }
+            )
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error during token exchange: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": "network_error",
+                "message": f"Failed to connect to Uber token endpoint: {str(e)}"
+            }
+        )
+
+
+@app.get("/uber/authorize")
+async def uber_authorize():
+    """
+    OAuth 2.0 Authorization Endpoint - Step 1
+    Redirects user to Uber's authorization page for integration activation.
+    """
+    # Validate required OAuth environment variables
+    if not UBER_CLIENT_ID or not UBER_REDIRECT_URI:
+        missing = []
+        if not UBER_CLIENT_ID:
+            missing.append("UBER_CLIENT_ID")
+        if not UBER_REDIRECT_URI:
+            missing.append("UBER_REDIRECT_URI")
+        
+        logger.error(f"OAuth configuration missing: {', '.join(missing)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "oauth_configuration_missing",
+                "missing_variables": missing
+            }
+        )
+    
+    # Build Uber authorization URL
+    auth_url = "https://auth.uber.com/oauth/v2/authorize"
+    params = {
+        "client_id": UBER_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": UBER_REDIRECT_URI,
+        "scope": "eats.pos_provisioning",
+    }
+    
+    # Build query string
+    query_string = "&".join([f"{k}={requests.utils.quote(v)}" for k, v in params.items()])
+    authorization_url = f"{auth_url}?{query_string}"
+    
+    logger.info(f"Redirecting to Uber authorization (scope: eats.pos_provisioning)")
+    
+    # Redirect user to Uber's authorization page
+    return RedirectResponse(url=authorization_url)
+
+
+@app.get("/uber/callback")
+async def uber_callback(code: Optional[str] = Query(None)):
+    """
+    OAuth 2.0 Callback Endpoint - Step 2
+    Receives authorization code from Uber and exchanges it for access token.
+    """
+    # Validate authorization code
+    if not code:
+        logger.warning("OAuth callback received without authorization code")
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "missing_authorization_code",
+                "message": "Authorization code is required"
+            }
+        )
+    
+    logger.info("OAuth callback received with authorization code")
+    
+    try:
+        # Exchange code for token
+        token_data = exchange_authorization_code_for_token(code)
+        
+        # Return safe success response (exclude sensitive token)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "success",
+                "message": "Authorization successful",
+                "scope": token_data.get("scope", "N/A"),
+                "expires_in": token_data.get("expires_in", "N/A"),
+            }
+        )
+    
+    except ValueError as e:
+        # Missing OAuth configuration
+        logger.error(f"OAuth configuration error: {str(e)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "oauth_configuration_error",
+                "message": str(e)
+            }
+        )
+    
+    except HTTPException as e:
+        # Token exchange failed (already logged in helper function)
+        return JSONResponse(
+            status_code=e.status_code,
+            content=e.detail
+        )
+    
+    except Exception as e:
+        # Unexpected error
+        logger.error(f"Unexpected error in OAuth callback: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "unexpected_error",
+                "message": "An unexpected error occurred during authorization"
+            }
+        )
 
 
 @app.get("/health")
