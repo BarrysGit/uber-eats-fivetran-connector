@@ -40,18 +40,44 @@ SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA", "UBER_EATS")
 
 PORT = int(os.getenv("PORT", "8080"))
 
-# Sensitive values from environment/secrets (same secrets as solidcore-scraper)
-UBER_CLIENT_SECRET = os.getenv("UBER_CLIENT_SECRET")
+# ============================================================================
+# UBER CREDENTIALS CONFIGURATION
+# ============================================================================
+
+# --------------------------------------------------------------------------
+# OLD CREDENTIALS - Stores/Reporting Webhook App (DO NOT MODIFY)
+# --------------------------------------------------------------------------
+# These credentials are for the EXISTING Uber Eats Stores/Reporting application.
+# Used ONLY for webhook signature verification.
+# Loaded from environment variables / Secret Manager.
+# DO NOT change these variable names or the webhook will break.
+# --------------------------------------------------------------------------
+
+UBER_CLIENT_SECRET = os.getenv("UBER_CLIENT_SECRET")  # For webhook HMAC verification
+
+# --------------------------------------------------------------------------
+# NEW CREDENTIALS - Orders/OAuth App (TEMPORARY HARDCODED)
+# --------------------------------------------------------------------------
+# These credentials are for the NEW Uber Eats Orders application.
+# Used ONLY for OAuth authorization code flow.
+# TEMPORARY: Hardcoded for testing. Will move to environment variables later.
+# --------------------------------------------------------------------------
+
+UBER_ORDERS_CLIENT_ID = "i1KUU09cNgeeoZzzXsRK1I0ZejG-JYAd"  # TODO: Move to env var
+UBER_ORDERS_CLIENT_SECRET = "lVetX2dHhtUliItt8tl9EtuXQ5xt5iX1abFc0cCU"  # TODO: Move to env var
+UBER_ORDERS_REDIRECT_URI = os.getenv("UBER_ORDERS_REDIRECT_URI", "").strip()  # Will be set in Cloud Run
+
+# ============================================================================
+
+# Snowflake credentials (shared by both apps)
 SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
 SNOWFLAKE_PRIVATE_KEY = os.getenv("SNOWFLAKE_PRIVATE_KEY")  # Same secret as solidcore-scraper
 
-# OAuth Configuration (optional - only needed for OAuth flow)
-UBER_CLIENT_ID = os.getenv("UBER_CLIENT_ID", "").strip()
-UBER_REDIRECT_URI = os.getenv("UBER_REDIRECT_URI", "").strip()
-
 # Validate required sensitive environment variables
+# NOTE: Only validating OLD webhook app credentials here (required for startup)
+# NEW Orders OAuth credentials validated only when OAuth endpoints are called
 required_vars = {
-    "UBER_CLIENT_SECRET": UBER_CLIENT_SECRET,
+    "UBER_CLIENT_SECRET": UBER_CLIENT_SECRET,  # OLD webhook app secret
     "SNOWFLAKE_USER": SNOWFLAKE_USER,
     "SNOWFLAKE_ACCOUNT": SNOWFLAKE_ACCOUNT,
     "SNOWFLAKE_WAREHOUSE": SNOWFLAKE_WAREHOUSE,
@@ -446,11 +472,13 @@ def store_report_data(conn, workflow_id: str, csv_rows: List[Dict[str, Any]]) ->
 
 # ============================================================================
 # OAuth 2.0 Authorization Code Flow for Uber Integration Activation
+# USES NEW ORDERS APP CREDENTIALS (NOT the old webhook app)
 # ============================================================================
 
 def exchange_authorization_code_for_token(code: str) -> Dict[str, Any]:
     """
     Exchange Uber authorization code for access token.
+    Uses NEW Orders app credentials (UBER_ORDERS_CLIENT_ID/SECRET).
     
     Args:
         code: Authorization code from Uber callback
@@ -462,40 +490,40 @@ def exchange_authorization_code_for_token(code: str) -> Dict[str, Any]:
         ValueError: If required environment variables are missing
         HTTPException: If token exchange fails
     """
-    # Validate required environment variables
+    # Validate required OAuth environment variables for NEW Orders app
     required_oauth_vars = {
-        "UBER_CLIENT_ID": UBER_CLIENT_ID,
-        "UBER_CLIENT_SECRET": UBER_CLIENT_SECRET,
-        "UBER_REDIRECT_URI": UBER_REDIRECT_URI,
+        "UBER_ORDERS_CLIENT_ID": UBER_ORDERS_CLIENT_ID,
+        "UBER_ORDERS_CLIENT_SECRET": UBER_ORDERS_CLIENT_SECRET,
+        "UBER_ORDERS_REDIRECT_URI": UBER_ORDERS_REDIRECT_URI,
     }
     
     missing = [k for k, v in required_oauth_vars.items() if not v]
     if missing:
         raise ValueError(f"Missing required OAuth environment variables: {', '.join(missing)}")
     
-    # Prepare token exchange request
+    # Prepare token exchange request using NEW Orders app credentials
     token_url = "https://auth.uber.com/oauth/v2/token"
     payload = {
-        "client_id": UBER_CLIENT_ID,
-        "client_secret": UBER_CLIENT_SECRET,
+        "client_id": UBER_ORDERS_CLIENT_ID,  # NEW Orders app
+        "client_secret": UBER_ORDERS_CLIENT_SECRET,  # NEW Orders app
         "grant_type": "authorization_code",
-        "redirect_uri": UBER_REDIRECT_URI,
+        "redirect_uri": UBER_ORDERS_REDIRECT_URI,
         "code": code,
     }
     
     try:
-        logger.info("Exchanging authorization code for access token")
+        logger.info("Exchanging authorization code for access token (Orders app)")
         response = requests.post(token_url, data=payload, timeout=30)
         
         # Parse response
         if response.status_code == 200:
             token_data = response.json()
-            logger.info(f"✅ Token exchange successful - scope: {token_data.get('scope', 'N/A')}, expires_in: {token_data.get('expires_in', 'N/A')}s")
+            logger.info(f"✅ Token exchange successful (Orders app) - scope: {token_data.get('scope', 'N/A')}, expires_in: {token_data.get('expires_in', 'N/A')}s")
             return token_data
         else:
             # Token exchange failed
             error_body = response.text
-            logger.error(f"Token exchange failed - status: {response.status_code}, body: {error_body}")
+            logger.error(f"Token exchange failed (Orders app) - status: {response.status_code}, body: {error_body}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail={
@@ -521,30 +549,32 @@ async def uber_authorize():
     """
     OAuth 2.0 Authorization Endpoint - Step 1
     Redirects user to Uber's authorization page for integration activation.
+    Uses NEW Orders app credentials (not the old webhook app).
     """
-    # Validate required OAuth environment variables
-    if not UBER_CLIENT_ID or not UBER_REDIRECT_URI:
+    # Validate required OAuth environment variables for NEW Orders app
+    if not UBER_ORDERS_CLIENT_ID or not UBER_ORDERS_REDIRECT_URI:
         missing = []
-        if not UBER_CLIENT_ID:
-            missing.append("UBER_CLIENT_ID")
-        if not UBER_REDIRECT_URI:
-            missing.append("UBER_REDIRECT_URI")
+        if not UBER_ORDERS_CLIENT_ID:
+            missing.append("UBER_ORDERS_CLIENT_ID")
+        if not UBER_ORDERS_REDIRECT_URI:
+            missing.append("UBER_ORDERS_REDIRECT_URI")
         
-        logger.error(f"OAuth configuration missing: {', '.join(missing)}")
+        logger.error(f"OAuth configuration missing for Orders app: {', '.join(missing)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "oauth_configuration_missing",
-                "missing_variables": missing
+                "missing_variables": missing,
+                "note": "OAuth uses separate Orders app credentials, not the webhook app"
             }
         )
     
-    # Build Uber authorization URL
+    # Build Uber authorization URL using NEW Orders app client ID
     auth_url = "https://auth.uber.com/oauth/v2/authorize"
     params = {
-        "client_id": UBER_CLIENT_ID,
+        "client_id": UBER_ORDERS_CLIENT_ID,  # NEW Orders app
         "response_type": "code",
-        "redirect_uri": UBER_REDIRECT_URI,
+        "redirect_uri": UBER_ORDERS_REDIRECT_URI,
         "scope": "eats.pos_provisioning",
     }
     
@@ -552,7 +582,7 @@ async def uber_authorize():
     query_string = "&".join([f"{k}={requests.utils.quote(v)}" for k, v in params.items()])
     authorization_url = f"{auth_url}?{query_string}"
     
-    logger.info(f"Redirecting to Uber authorization (scope: eats.pos_provisioning)")
+    logger.info(f"Redirecting to Uber authorization (Orders app, scope: eats.pos_provisioning)")
     
     # Redirect user to Uber's authorization page
     return RedirectResponse(url=authorization_url)
@@ -563,10 +593,11 @@ async def uber_callback(code: Optional[str] = Query(None)):
     """
     OAuth 2.0 Callback Endpoint - Step 2
     Receives authorization code from Uber and exchanges it for access token.
+    Uses NEW Orders app credentials (not the old webhook app).
     """
     # Validate authorization code
     if not code:
-        logger.warning("OAuth callback received without authorization code")
+        logger.warning("OAuth callback received without authorization code (Orders app)")
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
@@ -575,10 +606,10 @@ async def uber_callback(code: Optional[str] = Query(None)):
             }
         )
     
-    logger.info("OAuth callback received with authorization code")
+    logger.info("OAuth callback received with authorization code (Orders app)")
     
     try:
-        # Exchange code for token
+        # Exchange code for token using NEW Orders app credentials
         token_data = exchange_authorization_code_for_token(code)
         
         # Return safe success response (exclude sensitive token)
@@ -586,7 +617,7 @@ async def uber_callback(code: Optional[str] = Query(None)):
             status_code=status.HTTP_200_OK,
             content={
                 "status": "success",
-                "message": "Authorization successful",
+                "message": "Authorization successful (Orders app)",
                 "scope": token_data.get("scope", "N/A"),
                 "expires_in": token_data.get("expires_in", "N/A"),
             }
@@ -594,7 +625,7 @@ async def uber_callback(code: Optional[str] = Query(None)):
     
     except ValueError as e:
         # Missing OAuth configuration
-        logger.error(f"OAuth configuration error: {str(e)}")
+        logger.error(f"OAuth configuration error (Orders app): {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -612,7 +643,7 @@ async def uber_callback(code: Optional[str] = Query(None)):
     
     except Exception as e:
         # Unexpected error
-        logger.error(f"Unexpected error in OAuth callback: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error in OAuth callback (Orders app): {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
