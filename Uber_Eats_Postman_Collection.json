@@ -1,0 +1,239 @@
+{
+  "info": {
+    "name": "Uber Eats Fivetran Connector - Complete Test Suite",
+    "_postman_id": "uber-eats-webhook-oauth-tests",
+    "description": "Complete API tests for Uber Eats webhook and OAuth endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/health",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": "Test if service is running and Snowflake is connected"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Webhook GET (Uber Validation)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber-webhook",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber-webhook"
+          ]
+        },
+        "description": "Uber tests this endpoint to verify the webhook URL is accessible. Must return 200 OK."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Webhook HEAD (Uber Validation)",
+      "request": {
+        "method": "HEAD",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber-webhook",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber-webhook"
+          ]
+        },
+        "description": "Uber may also test with HEAD request. Must return 200 OK."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Webhook POST - Invalid Signature",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Uber-Signature",
+            "value": "invalid_signature_for_testing",
+            "type": "text",
+            "description": "This is intentionally wrong to test signature verification"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_id\": \"test_event_123\",\n  \"event_type\": \"eats.report.success\",\n  \"report_type\": \"EATS_STORE_DAILY_SALES_SUMMARY_REPORT_V2\",\n  \"test\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber-webhook",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber-webhook"
+          ]
+        },
+        "description": "Test webhook with invalid signature. Should return 401 Unauthorized."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Webhook POST - Missing Signature",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_id\": \"test_event_456\",\n  \"event_type\": \"eats.report.success\",\n  \"report_type\": \"EATS_STORE_DAILY_SALES_SUMMARY_REPORT_V2\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber-webhook",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber-webhook"
+          ]
+        },
+        "description": "Test webhook without signature header. Should return 401 Unauthorized."
+      },
+      "response": []
+    },
+    {
+      "name": "6. OAuth Authorize (Will Redirect)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber/authorize",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber",
+            "authorize"
+          ]
+        },
+        "description": "Initiates OAuth flow. Will redirect (307) to auth.uber.com. Check the Location header to see the redirect URL with Orders app client ID."
+      },
+      "response": []
+    },
+    {
+      "name": "7. OAuth Callback - Missing Code",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber/callback",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber",
+            "callback"
+          ]
+        },
+        "description": "Test callback without authorization code. Should return 400 Bad Request with error message."
+      },
+      "response": []
+    },
+    {
+      "name": "8. OAuth Callback - With Test Code (Will Fail)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app/uber/callback?code=test_invalid_code_12345",
+          "protocol": "https",
+          "host": [
+            "uber-eats-webhook-verifier-330826313616",
+            "us-east1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "uber",
+            "callback"
+          ],
+          "query": [
+            {
+              "key": "code",
+              "value": "test_invalid_code_12345",
+              "description": "Fake authorization code for testing"
+            }
+          ]
+        },
+        "description": "Test callback with fake authorization code. Will attempt to exchange with Uber but fail with 502 (token_exchange_failed). This is expected - only real codes from Uber OAuth flow will work."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://uber-eats-webhook-verifier-330826313616.us-east1.run.app",
+      "type": "string"
+    }
+  ]
+}
