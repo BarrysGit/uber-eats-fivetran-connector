@@ -616,12 +616,15 @@ async def uber_callback(code: Optional[str] = Query(None)):
         # Exchange code for token using NEW Orders app credentials
         token_data = exchange_authorization_code_for_token(code)
         
-        # Return safe success response (exclude sensitive token)
+        # Return safe success response
+        # TEMPORARY: Including access_token for sandbox testing/debugging
+        # TODO: Remove access_token from response before production deployment
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "status": "success",
                 "message": "Authorization successful (Orders app)",
+                "access_token": token_data.get("access_token"),  # SANDBOX ONLY - Remove for production
                 "scope": token_data.get("scope", "N/A"),
                 "expires_in": token_data.get("expires_in", "N/A"),
             }
